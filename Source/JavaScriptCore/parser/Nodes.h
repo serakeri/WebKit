@@ -713,15 +713,18 @@ namespace JSC {
         int m_elision { 0 };
     };
 
+    class BlockNode;
+
     enum class ClassElementTag : uint8_t { No, Instance, Static, LastTag };
     class PropertyNode final : public ParserArenaFreeable {
     public:
-        enum Type : uint16_t { Constant = 1, Getter = 2, Setter = 4, Computed = 8, Shorthand = 16, Spread = 32, PrivateField = 64, PrivateMethod = 128, PrivateSetter = 256, PrivateGetter = 512 };
+        enum Type : uint16_t { Constant = 1, Getter = 2, Setter = 4, Computed = 8, Shorthand = 16, Spread = 32, PrivateField = 64, PrivateMethod = 128, PrivateSetter = 256, PrivateGetter = 512, StaticBlock = 1024 };
 
         PropertyNode(const Identifier&, ExpressionNode*, Type, SuperBinding, ClassElementTag);
         PropertyNode(ExpressionNode*, Type, SuperBinding, ClassElementTag);
         PropertyNode(ExpressionNode* propertyName, ExpressionNode*, Type, SuperBinding, ClassElementTag);
         PropertyNode(const Identifier&, ExpressionNode* propertyName, ExpressionNode*, Type, SuperBinding, ClassElementTag);
+        PropertyNode(PropertyNode::Type, ClassElementTag);
 
         ExpressionNode* expressionName() const { return m_expression; }
         const Identifier* name() const { return m_name; }
@@ -733,7 +736,8 @@ namespace JSC {
         bool isInstanceClassProperty() const { return static_cast<ClassElementTag>(m_classElementTag) == ClassElementTag::Instance; }
         bool isClassField() const { return isClassProperty() && !needsSuperBinding(); }
         bool isInstanceClassField() const { return isInstanceClassProperty() && !needsSuperBinding(); }
-        bool isStaticClassField() const { return isStaticClassProperty() && !needsSuperBinding(); }
+        bool isStaticClassField() const { return isStaticClassProperty() && !needsSuperBinding() && !isStaticClassBlock(); }
+        bool isStaticClassBlock() const { return m_type & Type::StaticBlock; }
         bool isOverriddenByDuplicate() const { return m_isOverriddenByDuplicate; }
         bool isPrivate() const { return m_type & (PrivateField | PrivateMethod | PrivateGetter | PrivateSetter); }
         bool hasComputedName() const { return m_expression; }
@@ -755,7 +759,7 @@ namespace JSC {
         const Identifier* m_name { nullptr };
         ExpressionNode* m_expression { nullptr };
         ExpressionNode* m_assign;
-        unsigned m_type : 10;
+        unsigned m_type : 11;
         unsigned m_needsSuperBinding : 1;
         static_assert(1 << 2 > static_cast<unsigned>(ClassElementTag::LastTag), "ClassElementTag shouldn't use more than two bits");
         unsigned m_classElementTag : 2;
@@ -783,6 +787,11 @@ namespace JSC {
             return m_node->isStaticClassField();
         }
 
+        bool isStaticClassBlock() const
+        {
+            return m_node->isStaticClassBlock();
+        }
+
         void setHasPrivateAccessors(bool hasPrivateAccessors)
         {
             m_hasPrivateAccessors = hasPrivateAccessors;
@@ -795,7 +804,7 @@ namespace JSC {
 
         static bool shouldCreateLexicalScopeForClass(PropertyListNode*);
 
-        RegisterID* emitBytecode(BytecodeGenerator&, RegisterID*, RegisterID*, Vector<JSTextPosition>*, Vector<JSTextPosition>*);
+        RegisterID* emitBytecode(BytecodeGenerator&, RegisterID*, RegisterID*, Vector<JSTextPosition>*, Vector<JSTextPosition>*, Vector<JSTextPosition>* = nullptr);
 
         void emitDeclarePrivateFieldNames(BytecodeGenerator&, RegisterID* scope);
 

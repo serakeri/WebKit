@@ -223,6 +223,10 @@ public:
         bool isClassProperty = tag != ClassElementTag::No;
         return Property(type, PropertyNode::isUnderscoreProtoSetter(m_vm, name, type, needsSuperBinding, isClassProperty));
     }
+    Property createClassInitBlockProperty(PropertyNode::Type type, ClassElementTag)
+    {
+        return Property(type);
+    }
     Property createProperty(int, PropertyNode::Type type, SuperBinding, ClassElementTag)
     {
         return Property(type);

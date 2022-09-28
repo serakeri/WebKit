@@ -237,6 +237,11 @@ public:
             setIsFunction();
             break;
 
+        case SourceParseMode::ClassStaticBlockMode:
+            setIsFunction();
+            m_isClassStaticBlock = true;
+            break;
+
         case SourceParseMode::ArrowFunctionMode:
             setIsArrowFunction();
             break;
@@ -891,6 +896,7 @@ private:
     bool m_isArrowFunctionBoundary : 1 { false };
     bool m_isAsyncFunction : 1;
     bool m_isAsyncFunctionBoundary : 1 { false };
+    bool m_isClassStaticBlock : 1 { false };
     bool m_isLexicalScope : 1 { false };
     bool m_isGlobalCodeScope : 1 { false };
     bool m_isSimpleCatchParameterScope : 1 { false };
@@ -1726,6 +1732,7 @@ private:
     template <class TreeBuilder> TreeSourceElements parseAsyncGeneratorFunctionSourceElements(TreeBuilder&, bool isArrowFunctionBodyExpression, SourceElementsMode);
     template <class TreeBuilder> TreeSourceElements parseSingleFunction(TreeBuilder&, std::optional<int> functionConstructorParametersEndPosition);
     template <class TreeBuilder> TreeSourceElements parseClassFieldInitializerSourceElements(TreeBuilder&, const FixedVector<JSTextPosition>&);
+    template <class TreeBuilder> TreeSourceElements parseClassStaticBlockSourceElements(TreeBuilder&, const FixedVector<JSTextPosition>&);
     template <class TreeBuilder> TreeStatement parseStatementListItem(TreeBuilder&, const Identifier*& directive, unsigned* directiveLiteralLength);
     template <class TreeBuilder> TreeStatement parseStatement(TreeBuilder&, const Identifier*& directive, unsigned* directiveLiteralLength = nullptr);
     enum class ExportType { Exported, NotExported };
@@ -1812,6 +1819,7 @@ private:
     template <class TreeBuilder> NEVER_INLINE typename TreeBuilder::FormalParameterList createGeneratorParameters(TreeBuilder&, unsigned& parameterCount);
 
     template <class TreeBuilder> NEVER_INLINE TreeClassExpression parseClass(TreeBuilder&, FunctionNameRequirements, ParserClassInfo<TreeBuilder>&);
+    template <class TreeBuilder> NEVER_INLINE TreeStatement parseClassStaticBlock(TreeBuilder&);
 
     template <class TreeBuilder> NEVER_INLINE typename TreeBuilder::TemplateString parseTemplateString(TreeBuilder& context, bool isTemplateHead, typename LexerType::RawStringsBuildMode, bool& elementIsTail);
     template <class TreeBuilder> NEVER_INLINE typename TreeBuilder::TemplateLiteral parseTemplateLiteral(TreeBuilder&, typename LexerType::RawStringsBuildMode);

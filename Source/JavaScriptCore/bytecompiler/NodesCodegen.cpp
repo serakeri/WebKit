@@ -577,7 +577,7 @@ void PropertyListNode::emitDeclarePrivateFieldNames(BytecodeGenerator& generator
     }
 }
 
-RegisterID* PropertyListNode::emitBytecode(BytecodeGenerator& generator, RegisterID* dstOrConstructor, RegisterID* prototype, Vector<JSTextPosition>* instanceFieldLocations, Vector<JSTextPosition>* staticFieldLocations)
+RegisterID* PropertyListNode::emitBytecode(BytecodeGenerator& generator, RegisterID* dstOrConstructor, RegisterID* prototype, Vector<JSTextPosition>* instanceFieldLocations, Vector<JSTextPosition>* staticFieldLocations, Vector<JSTextPosition>* staticBlockLocations)
 {
     using GetterSetterPair = std::pair<PropertyNode*, PropertyNode*>;
     using GetterSetterMap = HashMap<UniquedStringImpl*, GetterSetterPair, IdentifierRepHash>;
@@ -651,6 +651,7 @@ RegisterID* PropertyListNode::emitBytecode(BytecodeGenerator& generator, Registe
 
         if (p->isStaticClassField()) {
             ASSERT(staticFieldLocations);
+            ASSERT(!p->isStaticClassBlock());
             staticFieldLocations->append(p->position());
             continue;
         }
@@ -684,6 +685,9 @@ RegisterID* PropertyListNode::emitBytecode(BytecodeGenerator& generator, Registe
                 }
                 continue;
             }
+
+            if (p->isStaticClassBlock())
+                continue;
 
             // Duplicates are possible.
             GetterSetterPair pair(node, static_cast<PropertyNode*>(nullptr));
@@ -722,6 +726,12 @@ RegisterID* PropertyListNode::emitBytecode(BytecodeGenerator& generator, Registe
             if (p->isStaticClassField()) {
                 ASSERT(staticFieldLocations);
                 staticFieldLocations->append(p->position());
+                continue;
+            }
+
+            if (p->isStaticClassBlock()) {
+                ASSERT(staticBlockLocations);
+                staticBlockLocations->append(p->position());
                 continue;
             }
 
@@ -5177,11 +5187,12 @@ RegisterID* ClassExprNode::emitBytecode(BytecodeGenerator& generator, RegisterID
     generator.emitCallDefineProperty(constructor.get(), prototypeNameRegister.get(), prototype.get(), nullptr, nullptr, 0, m_position);
 
     Vector<JSTextPosition> staticFieldLocations;
+    Vector<JSTextPosition> staticBlockLocations;
     if (m_classElements) {
         m_classElements->emitDeclarePrivateFieldNames(generator, generator.scopeRegister());
 
         Vector<JSTextPosition> instanceFieldLocations;
-        generator.emitDefineClassElements(m_classElements, constructor.get(), prototype.get(), instanceFieldLocations, staticFieldLocations);
+        generator.emitDefineClassElements(m_classElements, constructor.get(), prototype.get(), instanceFieldLocations, staticFieldLocations, staticBlockLocations);
         if (!instanceFieldLocations.isEmpty()) {
             RefPtr<RegisterID> instanceFieldInitializer = generator.emitNewClassFieldInitializerFunction(generator.newTemporary(), WTFMove(instanceFieldLocations), m_classHeritage);
 
@@ -5212,6 +5223,16 @@ RegisterID* ClassExprNode::emitBytecode(BytecodeGenerator& generator, RegisterID
         CallArguments args(generator, nullptr);
         generator.move(args.thisRegister(), constructor.get());
         generator.emitCall(generator.newTemporary(), staticFieldInitializer.get(), NoExpectedFunction, args, position(), position(), position(), DebuggableCall::No);
+    }
+    for (auto staticBlockLocation : staticBlockLocations) {
+        Vector<JSTextPosition> staticBlockLocVector = Vector<JSTextPosition>(1, staticBlockLocation);
+        RefPtr<RegisterID> staticBlockInitializer = generator.emitNewStaticBlockInitializerFunction(generator.newTemporary(), WTFMove(staticBlockLocVector), m_classHeritage);
+
+        emitPutHomeObject(generator, staticBlockInitializer.get(), constructor.get());
+
+        CallArguments args(generator, nullptr);
+        generator.move(args.thisRegister(), constructor.get());
+        generator.emitCall(generator.newTemporary(), staticBlockInitializer.get(), NoExpectedFunction, args, position(), position(), position(), DebuggableCall::No);
     }
 
     if (hasPrivateNames)

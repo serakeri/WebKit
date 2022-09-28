@@ -201,6 +201,7 @@ JSString* FunctionExecutable::toStringSlow(JSGlobalObject* globalObject)
     case SourceParseMode::AsyncGeneratorBodyMode:
     case SourceParseMode::AsyncFunctionBodyMode:
     case SourceParseMode::AsyncArrowFunctionBodyMode:
+    case SourceParseMode::ClassStaticBlockMode:
         functionHeader = "function "_s;
         break;
 

@@ -3301,6 +3301,34 @@ RegisterID* BytecodeGenerator::emitNewDefaultConstructor(RegisterID* dst, Constr
     return dst;
 }
 
+RegisterID* BytecodeGenerator::emitNewStaticBlockInitializerFunction(RegisterID* dst, Vector<JSTextPosition>&& staticBlockLocations, bool isDerived)
+{
+    DerivedContextType newDerivedContextType;
+    SuperBinding superBinding;
+    if (!isDerived) {
+        newDerivedContextType = DerivedContextType::None;
+        superBinding = SuperBinding::NotNeeded;
+    } else {
+        newDerivedContextType = DerivedContextType::DerivedMethodContext;
+        superBinding = SuperBinding::Needed;
+    }
+
+    auto variablesUnderTDZ = getVariablesUnderTDZ();
+    std::optional<PrivateNameEnvironment> parentPrivateNameEnvironment = getAvailablePrivateAccessNames();
+    SourceParseMode parseMode = SourceParseMode::ClassStaticBlockMode;
+    ConstructAbility constructAbility = ConstructAbility::CannotConstruct;
+
+    FunctionMetadataNode metadata(parserArena(), JSTokenLocation(), JSTokenLocation(), 0, 0, 0, 0, 0, ImplementationVisibility::Private, StrictModeLexicalFeature, ConstructorKind::None, superBinding, 0, parseMode, false);
+    metadata.finishParsing(m_scopeNode->source(), Identifier(), FunctionMode::MethodDefinition);
+    auto initializer = UnlinkedFunctionExecutable::create(m_vm, m_scopeNode->source(), &metadata, isBuiltinFunction() ? UnlinkedBuiltinFunction : UnlinkedNormalFunction, constructAbility, scriptMode(), WTFMove(variablesUnderTDZ), WTFMove(parentPrivateNameEnvironment), newDerivedContextType, NeedsClassFieldInitializer::No, PrivateBrandRequirement::None);
+    initializer->setClassFieldLocations(WTFMove(staticBlockLocations));
+
+    unsigned index = m_codeBlock->addFunctionExpr(initializer);
+    OpNewFuncExp::emit(this, dst, scopeRegister(), index);
+
+    return dst;
+}
+
 RegisterID* BytecodeGenerator::emitNewClassFieldInitializerFunction(RegisterID* dst, Vector<JSTextPosition>&& classFieldLocations, bool isDerived)
 {
     DerivedContextType newDerivedContextType;

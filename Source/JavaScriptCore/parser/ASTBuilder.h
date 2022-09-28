@@ -519,6 +519,11 @@ public:
         return new (m_parserArena) PropertyNode(ident, methodDef, type, SuperBinding::Needed, tag);
     }
 
+    PropertyNode* createClassInitBlockProperty(PropertyNode::Type type, ClassElementTag tag)
+    {
+        return new (m_parserArena) PropertyNode(type, tag);
+    }
+
     PropertyNode* createProperty(const Identifier* propertyName, ExpressionNode* node, PropertyNode::Type type, SuperBinding superBinding, InferName inferName, ClassElementTag tag)
     {
         if (inferName == InferName::Allowed) {

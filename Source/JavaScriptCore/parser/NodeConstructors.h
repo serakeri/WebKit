@@ -246,6 +246,17 @@ namespace JSC {
     {
     }
 
+    inline PropertyNode::PropertyNode(PropertyNode::Type type, ClassElementTag tag)
+        : m_name(nullptr)
+        , m_expression(nullptr)
+        , m_assign(nullptr)
+        , m_type(type)
+        , m_needsSuperBinding(false)
+        , m_classElementTag(static_cast<unsigned>(tag))
+        , m_isOverriddenByDuplicate(false)
+    {
+    }
+
     inline PropertyNode::PropertyNode(const Identifier& name, ExpressionNode* assign, Type type, SuperBinding superBinding, ClassElementTag tag)
         : m_name(&name)
         , m_assign(assign)

@@ -237,7 +237,7 @@ Expected<typename Parser<LexerType>::ParseInnerResult, String> Parser<LexerType>
         ParserFunctionInfo<ASTBuilder> functionInfo;
         if (isGeneratorOrAsyncFunctionBodyParseMode(parseMode))
             parameters = createGeneratorParameters(context, functionInfo.parameterCount);
-        else if (parseMode == SourceParseMode::ClassFieldInitializerMode)
+        else if (SourceParseModeSet(SourceParseMode::ClassFieldInitializerMode, SourceParseMode::ClassStaticBlockMode).contains(parseMode))
             parameters = context.createFormalParameterList();
         else
             parameters = parseFunctionParameters(context, functionInfo);
@@ -283,7 +283,9 @@ Expected<typename Parser<LexerType>::ParseInnerResult, String> Parser<LexerType>
         else if (parseMode == SourceParseMode::ClassFieldInitializerMode) {
             ASSERT(classFieldLocations && !classFieldLocations->isEmpty());
             sourceElements = parseClassFieldInitializerSourceElements(context, *classFieldLocations);
-        } else
+        } else if (parseMode == SourceParseMode::ClassStaticBlockMode)
+            sourceElements = parseClassStaticBlockSourceElements(context, *classFieldLocations);
+        else
             sourceElements = parseSourceElements(context, CheckForStrictMode);
     }
 
@@ -1660,7 +1662,7 @@ template <class TreeBuilder> TreeStatement Parser<LexerType>::parseReturnStateme
 {
     ASSERT(match(RETURN));
     JSTokenLocation location(tokenLocation());
-    semanticFailIfFalse(currentScope()->isFunction(), "Return statements are only valid inside functions");
+    semanticFailIfTrue(!currentScope()->isFunction() || sourceParseMode() == SourceParseMode::ClassStaticBlockMode, "Return statements are only valid inside functions");
     JSTextPosition start = tokenStartPosition();
     JSTextPosition end = tokenEndPosition();
     next();
@@ -2217,6 +2219,7 @@ static const char* stringArticleForFunctionMode(SourceParseMode mode)
     case SourceParseMode::ModuleAnalyzeMode:
     case SourceParseMode::ModuleEvaluateMode:
     case SourceParseMode::ClassFieldInitializerMode:
+    case SourceParseMode::ClassStaticBlockMode:
         RELEASE_ASSERT_NOT_REACHED();
         return "";
     }
@@ -2259,6 +2262,7 @@ static const char* stringForFunctionMode(SourceParseMode mode)
     case SourceParseMode::ModuleAnalyzeMode:
     case SourceParseMode::ModuleEvaluateMode:
     case SourceParseMode::ClassFieldInitializerMode:
+    case SourceParseMode::ClassStaticBlockMode:
         RELEASE_ASSERT_NOT_REACHED();
         return "";
     }
@@ -2894,6 +2898,16 @@ static constexpr ASCIILiteral instanceComputedNamePrefix { "instanceComputedName
 static constexpr ASCIILiteral staticComputedNamePrefix { "staticComputedName"_s };
 
 template <typename LexerType>
+template <class TreeBuilder> TreeStatement Parser<LexerType>::parseClassStaticBlock(TreeBuilder& context)
+{
+    AutoPopScopeRef initBlockScope(this, pushScope());
+    initBlockScope->m_isClassStaticBlock = true;
+    SetForScope innerParseMode(m_parseMode, SourceParseMode::ClassStaticBlockMode);
+    SetForScope overrideAllowAwait(m_parserState.allowAwait, false);
+    return parseBlockStatement(context, false);
+}
+
+template <typename LexerType>
 template <class TreeBuilder> TreeClassExpression Parser<LexerType>::parseClass(TreeBuilder& context, FunctionNameRequirements requirements, ParserClassInfo<TreeBuilder>& info)
 {
     ASSERT(match(CLASSTOKEN));
@@ -2984,6 +2998,18 @@ template <class TreeBuilder> TreeClassExpression Parser<LexerType>::parseClass(T
             if (match(OPENPAREN) || match(SEMICOLON) || match(EQUAL)) {
                 // Reparse "static()" as a method or "static" as a class field.
                 restoreSavePoint(context, savePoint);
+            } else if (match(OPENBRACE)) {
+                type = PropertyNode::StaticBlock;
+                parseClassStaticBlock(context);
+                propagateError();
+
+                TreeProperty property = context.createClassInitBlockProperty(PropertyNode::StaticBlock, ClassElementTag::Static);
+
+                if (classElementsTail)
+                    classElementsTail = context.createPropertyList(methodLocation, property, classElementsTail);
+                else
+                    classElements = classElementsTail = context.createPropertyList(methodLocation, property);
+                continue;
             } else
                 tag = ClassElementTag::Static;
         }
@@ -3275,6 +3301,9 @@ template <class TreeBuilder> TreeSourceElements Parser<LexerType>::parseClassFie
                 type = DefineFieldNode::Type::ComputedName;
                 break;
             }
+            case OPENBRACE:
+                parseClassStaticBlock(context);
+                continue;
             default:
                 if (m_token.m_type & KeywordTokenFlag)
                     goto namedKeyword;
@@ -3295,6 +3324,34 @@ template <class TreeBuilder> TreeSourceElements Parser<LexerType>::parseClassFie
         TreeStatement defineField = context.createDefineField(fieldLocation, ident, initializer, type);
         context.appendStatement(sourceElements, defineField);
     }
+
+    ASSERT(!hasError());
+    // Trick parseInner() into believing we've parsed the entire SourceCode, in order to prevent it from producing an error.
+    m_token.m_type = EOFTOK;
+    return sourceElements;
+}
+
+template <typename LexerType>
+template <class TreeBuilder> TreeSourceElements Parser<LexerType>::parseClassStaticBlockSourceElements(TreeBuilder& context, const FixedVector<JSTextPosition>& staticBlockLocations)
+{
+    ASSERT(staticBlockLocations.size() == 1);
+
+    currentScope()->setIsClassScope();
+
+    auto location = staticBlockLocations[0];
+
+    // We don't need to worry about hasLineTerminatorBeforeToken
+    // on class fields, so we set this value to false.
+    LexerState lexerState { location.offset, static_cast<unsigned>(location.lineStartOffset), static_cast<unsigned>(location.line), static_cast<unsigned>(location.line), false };
+    restoreLexerState(lexerState);
+
+    if (match(RESERVED_IF_STRICT) && *m_token.m_data.ident == m_vm.propertyNames->staticKeyword)
+        next();
+
+    ASSERT(match(OPENBRACE));
+    next();
+
+    TreeSourceElements sourceElements = parseSourceElements(context, CheckForStrictMode);
 
     ASSERT(!hasError());
     // Trick parseInner() into believing we've parsed the entire SourceCode, in order to prevent it from producing an error.
@@ -4254,6 +4311,7 @@ template <class TreeBuilder> TreeExpression Parser<LexerType>::parseAwaitExpress
     ASSERT(currentScope()->isAsyncFunction() || isModuleParseMode(sourceParseMode()));
     ASSERT(isAsyncFunctionParseMode(sourceParseMode()) || isModuleParseMode(sourceParseMode()));
     ASSERT(m_parserState.functionParsePhase != FunctionParsePhase::Parameters);
+    semanticFailIfTrue(m_parseMode == SourceParseMode::ClassStaticBlockMode, "Cannot use await in a class static initialization block");
     JSTokenLocation location(tokenLocation());
     JSTextPosition divotStart = tokenStartPosition();
     next();
